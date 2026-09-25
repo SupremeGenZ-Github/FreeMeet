@@ -61,7 +61,7 @@ export function createApp(options = {}) {
     }}).catch(()=>{});
   }, 60000);
   cleanup.unref();
-  app.get('/api/health', (_req, res) => res.json({ ok: true, version:'3.0.0', storage:store.durable?'postgresql':'temporary-memory' }));
+  app.get('/api/health', (_req, res) => res.json({ ok: true, version:'3.1.0', storage:store.durable?'postgresql':'temporary-memory' }));
   app.get('/api/config', (_req, res) => res.json({ permanentRooms:store.durable, hostKeyRequired: !!env.HOST_ACCESS_KEY, maxParticipants: maximum, turnConfigured: !!(env.TURN_URLS && (env.TURN_SECRET || (env.TURN_USERNAME && env.TURN_PASSWORD))) }));
   app.post('/api/rooms', rateLimit({ windowMs: 60000, limit: 8, standardHeaders: true, legacyHeaders: false }), async (req, res) => {
     await ready;
@@ -113,6 +113,7 @@ export function createApp(options = {}) {
       r.waiting.delete(s.id); r.members.set(s.id, p); r.emptySince = null;
       s.join(r.code); s.data.code = r.code;
       p.joinedAt=Date.now();r.attendance.push({id:p.id,personId:p.personId,meetingId:r.meetingId,name:p.name,joinedAt:p.joinedAt,lastSeen:p.joinedAt,leftAt:null,endReason:''});
+      if(r.poll?.creatorSession===p.sessionId){r.poll.creatorId=p.id;io.to(r.code).emit('poll',publicPoll(r.poll));}
       s.emit('admitted', { selfId: s.id, iceServers: iceServers(), messages: r.messages, board: r.board, notes: r.notes, notesRevision:r.notesRevision||0, poll: publicPoll(r.poll), whiteboard:boardState(r) });
       emitState(r);
     }
@@ -150,8 +151,9 @@ export function createApp(options = {}) {
     });
     on('admit', d => { const { r } = context(true); const p = r.waiting.get(d.id); const s = io.sockets.sockets.get(d.id); if (!p || !s) throw new Error('Participant has left.'); admit(r, s, p); r.sessions.get(p.sessionId).admitted = true; });
     on('reject', d => { const { r } = context(true); const p = r.waiting.get(d.id); if (!p) return; const s = io.sockets.sockets.get(d.id); s?.emit('ended', 'The host declined your request.'); if (s) s.data = {}; r.waiting.delete(d.id); r.sessions.delete(p.sessionId); emitState(r); });
-    on('signal', d => { const { r } = context(); if (!r.members.has(d.to) || d.to === socket.id) throw new Error('Invalid recipient.'); if (!d.description && !d.candidate) throw new Error('Invalid signal.'); io.to(d.to).emit('signal', { from: socket.id, description: d.description, candidate: d.candidate }); });
+    on('signal', d => { const { r } = context(); if (!r.members.has(d.to) || d.to === socket.id) throw new Error('Invalid recipient.'); if (!d.description && !d.candidate && d.restart!==true) throw new Error('Invalid signal.'); io.to(d.to).emit('signal', { from: socket.id, description: d.description, candidate: d.candidate, restart:d.restart===true }); });
     on('media', d => { const { r, p } = context();
+      if(d.sharing===true&&p.role==='guest'&&!r.shareEnabled)throw Error('Screen sharing is disabled by the host.');
       if(d.recording===true && p.role==='guest' && r.recordingEnabled===false)throw Error('Participant recording is disabled by the host.');
       const raised=d.hand===true&&!p.hand;
       for (const k of ['mic','camera','hand','sharing','recording']) if(typeof d[k]==='boolean')p[k]=k==='sharing'&&p.role==='guest'&&!r.shareEnabled?false:d[k];
@@ -159,8 +161,8 @@ export function createApp(options = {}) {
     });
     on('chat', d => { const { r, p } = context(); if (!r.chatEnabled && p.role === 'guest') throw new Error('Chat is disabled.'); const text = clean(d.text, 2000); if (!text) return; const msg = { id: token(), senderId:p.id, name: p.name, text, at: Date.now() }; r.messages.push(msg); r.messages = r.messages.slice(-200); io.to(r.code).emit('chat', msg); });
     on('reaction', d => { const { r, p } = context(); if (!['👏','❤️','👍','🎉','💡'].includes(d.emoji)) return; io.to(r.code).emit('reaction', { name: p.name, emoji: d.emoji }); });
-    on('settings', d => { const { r } = context(true); for (const k of ['locked', 'chatEnabled', 'shareEnabled', 'boardEnabled','recordingEnabled','participantPollsEnabled']) if (typeof d[k] === 'boolean') r[k] = d[k]; if(r.recordingEnabled===false)for(const p of r.members.values())if(p.role==='guest'){p.recording=false;io.to(p.id).emit('control',{action:'stop-recording'});} if (!r.shareEnabled) for (const p of r.members.values()) if (p.role === 'guest') io.to(p.id).emit('control', { action: 'stop-sharing' }); emitState(r); });
-    on('control', d => { const { r, p } = context(true); const target = r.members.get(d.id); if (!target || target.id === p.id || target.role === 'host' || (p.role === 'cohost' && target.role === 'cohost')) throw new Error('Cannot control this participant.'); if (!['mute', 'request-unmute', 'remove', 'cohost', 'guest'].includes(d.action)) throw new Error('Unknown action.'); if (['cohost', 'guest'].includes(d.action)) { if (p.role !== 'host') throw new Error('Only the host can change roles.'); target.role = d.action; r.sessions.get(target.sessionId).role = d.action; emitState(r); } else if (d.action === 'remove') { r.sessions.get(target.sessionId).banned = true; const s = io.sockets.sockets.get(d.id); s?.emit('ended', 'The host removed you from the meeting.'); leave(s); } else io.to(d.id).emit('control', { action: d.action }); });
+    on('settings', d => { const { r } = context(true); for (const k of ['locked', 'chatEnabled', 'shareEnabled', 'boardEnabled','recordingEnabled','participantPollsEnabled']) if (typeof d[k] === 'boolean') r[k] = d[k]; if(r.recordingEnabled===false)for(const p of r.members.values())if(p.role==='guest'){p.recording=false;io.to(p.id).emit('control',{action:'stop-recording'});} if (!r.shareEnabled) for (const p of r.members.values()) if (p.role === 'guest') {p.sharing=false;io.to(p.id).emit('control', { action: 'stop-sharing' });} emitState(r); });
+    on('control', d => { const { r, p } = context(true); const target = r.members.get(d.id); if (!target || target.id === p.id || target.role === 'host' || (p.role === 'cohost' && target.role === 'cohost')) throw new Error('Cannot control this participant.'); if (!['mute', 'request-unmute', 'remove', 'cohost', 'guest'].includes(d.action)) throw new Error('Unknown action.'); if (['cohost', 'guest'].includes(d.action)) { if (p.role !== 'host') throw new Error('Only the host can change roles.'); target.role = d.action; if(d.action==='guest'){if(r.recordingEnabled===false){target.recording=false;io.to(target.id).emit('control',{action:'stop-recording'});}if(!r.shareEnabled){target.sharing=false;io.to(target.id).emit('control',{action:'stop-sharing'});}} r.sessions.get(target.sessionId).role = d.action; emitState(r); } else if (d.action === 'remove') { r.sessions.get(target.sessionId).banned = true; const s = io.sockets.sockets.get(d.id); s?.emit('ended', 'The host removed you from the meeting.'); leave(s); } else io.to(d.id).emit('control', { action: d.action }); });
     on('end', () => { const { r } = context(true); endRoom(r); });
     on('attendance', () => { const { r } = context(true); return reports(r); });
     on('heartbeat',()=>{const {r}=context();const row=r.attendance.findLast(a=>a.id===socket.id&&!a.leftAt);if(row)row.lastSeen=Date.now();});
@@ -186,7 +188,9 @@ export function createApp(options = {}) {
     socket.on('disconnect',()=>{const code=socket.data.code;enqueue(async()=>{leave();await persist(rooms.get(code));}).catch(()=>{});});
     socket.on('error', () => {});
   });
+  app.use((req,res,next)=>{if(req.path==='/'||req.path.startsWith('/meet/'))res.set('Cache-Control','no-store');next();});
   app.use(express.static(fileURLToPath(new URL('../dist', import.meta.url))));
+  app.use(['/background','/assets'],(_req,res)=>res.status(404).type('text/plain').send('Application asset missing. Upload all project files and redeploy.'));
   app.get('/{*path}', (req, res) => req.path.startsWith('/api/') ? res.status(404).json({ error: 'Not found' }) : res.sendFile(fileURLToPath(new URL('../dist/index.html', import.meta.url))));
   app.use((err, _req, res, _next) => res.status(err.status || 500).json({ error: err.status === 400 ? 'Invalid request.' : 'Request failed.' }));
   return {app,server,io,rooms,ready,flush:()=>serial,close:async()=>{clearInterval(cleanup);await serial;for(const r of rooms.values()){closeAttendance(r,'Server shutdown');await persist(r);}await new Promise(resolve=>io.close(resolve));await serial;await store.close();}};

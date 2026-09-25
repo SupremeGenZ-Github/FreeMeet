@@ -7,8 +7,8 @@ const emit=(s,e,d={})=>new Promise((resolve,reject)=>s.timeout(4000).emit(e,d,(e
 async function fixture(fn){
  const app=createApp({env:{DATABASE_URL:'',HOST_ACCESS_KEY:''}});await app.ready;await new Promise(r=>app.server.listen(0,'127.0.0.1',r));const base='http://127.0.0.1:'+app.server.address().port;const sockets=[];
  try{const room=await(await fetch(base+'/api/rooms',{method:'POST',headers:{'content-type':'application/json'},body:'{}'})).json();
- const connect=async name=>{const s=io(base,{transports:['websocket'],forceNew:true});sockets.push(s);await new Promise(r=>s.once('connect',r));await emit(s,'join',{code:room.code,name,hostToken:name==='Host'?room.hostToken:undefined});return s;};
- const host=await connect('Host'),guest=await connect('Guest');await emit(host,'admit',{id:guest.id});await fn({host,guest,room:app.rooms.get(room.code)});
+ const connect=async (name,resumeToken)=>{const s=io(base,{transports:['websocket'],forceNew:true});sockets.push(s);await new Promise(r=>s.once('connect',r));const joined=await emit(s,'join',{code:room.code,name,resumeToken,hostToken:name==='Host'?room.hostToken:undefined});s.resume=joined.resumeToken;return s;};
+ const host=await connect('Host'),guest=await connect('Guest');await emit(host,'admit',{id:guest.id});await fn({host,guest,connect,room:app.rooms.get(room.code)});
  }finally{sockets.forEach(s=>s.disconnect());await app.close();}
 }
 
@@ -39,4 +39,16 @@ test('guest polls respect host permission and cannot overwrite active polls',()=
 test('chat carries sender identity and hand raise emits one event per transition',()=>fixture(async({host,guest})=>{
  const chat=new Promise(r=>host.once('chat',r));await emit(guest,'chat',{text:'Hello'});assert.equal((await chat).senderId,guest.id);
  let hands=0;host.on('hand-raised',()=>hands++);await emit(guest,'media',{hand:true});await emit(guest,'media',{hand:true});await emit(guest,'media',{hand:false});await emit(guest,'media',{hand:true});await new Promise(r=>setTimeout(r,30));assert.equal(hands,2);
+}));
+
+test('screen sharing is revoked immediately and cannot restart while disabled',()=>fixture(async({host,guest,room})=>{
+ assert.equal((await emit(guest,'media',{sharing:true})).ok,true);
+ await emit(host,'settings',{shareEnabled:false});assert.equal(room.members.get(guest.id).sharing,false);assert.equal((await emit(guest,'media',{sharing:true})).ok,false);
+}));
+test('demoting a cohost enforces the existing recording and sharing restrictions',()=>fixture(async({host,guest,room})=>{
+ await emit(host,'settings',{shareEnabled:false,recordingEnabled:false});await emit(host,'control',{id:guest.id,action:'cohost'});assert.equal((await emit(guest,'media',{sharing:true,recording:true})).ok,true);await emit(host,'control',{id:guest.id,action:'guest'});assert.equal(room.members.get(guest.id).recording,false);assert.equal(room.members.get(guest.id).sharing,false);
+}));
+
+test('poll creator keeps closing controls after reconnecting',()=>fixture(async({host,guest,connect,room})=>{
+ await emit(guest,'poll-create',{question:'Rejoin?',choices:['Yes','No']});const resume=guest.resume;const left=new Promise(r=>host.once('state',r));guest.disconnect();await left;const rejoined=await connect('Guest',resume);assert.equal(room.poll.creatorId,rejoined.id);assert.equal((await emit(rejoined,'poll-close')).ok,true);
 }));

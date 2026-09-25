@@ -4,7 +4,7 @@ Use your existing GitHub repository, Render service and Neon database. Back up t
 
 1. Upload the extracted contents at the same repository directory that contains package.json. Include package-lock.json and all of public/background (the model and WASM files).
 2. Render build: `npm ci --include=dev && npm run build`; start: `npm start`; health: `/api/health`.
-3. Deploy the latest commit. The health response should report version `3.0.0` and storage `postgresql`.
+3. Deploy the latest commit. The health response should report version `3.1.0` and storage `postgresql`.
 4. Everyone must close old meeting tabs and reload before joining. Do not mix old and new clients.
 
 ## Where to find features

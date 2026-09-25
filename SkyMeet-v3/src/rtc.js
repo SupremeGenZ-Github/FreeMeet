@@ -5,7 +5,7 @@ const mids = sdp => [...sdp.matchAll(/^a=mid:(.+)$/gm)].map(m => m[1].trim());
 export class Mesh {
   constructor(socket, iceServers, callbacks) {
     this.socket = socket; this.config = { iceServers }; this.callbacks = callbacks;
-    this.peers = new Map(); this.local = null; this.screen = null; this.closed = false;
+    this.peers = new Map(); this.local = null; this.screen = null; this.closed = false; this.mediaQueue=Promise.resolve();
     this.signalHandler = d => this.signal(d).catch(e => { if (!this.closed) callbacks.error(e.message); });
     socket.on('signal', this.signalHandler);
   }
@@ -41,7 +41,13 @@ export class Mesh {
     const tracks = [this.local?.getAudioTracks()[0], this.local?.getVideoTracks()[0], this.screen?.getVideoTracks()[0], this.screen?.getAudioTracks()[0]];
     await Promise.all(peer.slots.map((t, i) => t.sender.replaceTrack(tracks[i]?.readyState === 'live' ? tracks[i] : null)));
   }
-  async media(local, screen) { this.local = local; this.screen = screen; await Promise.all([...this.peers.values()].map(p => this.replace(p))); }
+  async media(local, screen) {
+    this.local=local;this.screen=screen;
+    const next=this.mediaQueue.then(async()=>{if(this.closed)return;await Promise.all([...this.peers.entries()].map(async([id,p])=>{try{await this.replace(p);}catch(e){if(!this.closed&&this.peers.get(id)===p)this.callbacks.error('Could not update media: '+e.message);}}));});
+    this.mediaQueue=next.catch(()=>{});return next;
+  }
+  async restart(){if(this.closed)return;await Promise.all([...this.peers.keys()].map(id=>this.socket.id<id?this.offer(id,true):this.socket.emit('signal',{to:id,restart:true})));}
+
   async sync(participants) {
     if (this.closed) return;
     const ids = participants.map(p => p.id).filter(id => id !== this.socket.id);
@@ -62,9 +68,10 @@ export class Mesh {
       if (!this.closed) this.socket.emit('signal', { to:id, description:p.pc.localDescription });
     } finally { p.busy = false; }
   }
-  signal({ from, description, candidate }) {
+  signal({ from, description, candidate, restart }) {
     if (this.closed) return Promise.resolve();
     const p = this.get(from);
+    if(restart)return this.offer(from,true);
     const task = p.queue.then(async () => {
       if (this.closed || this.peers.get(from) !== p) return;
       if (description) {

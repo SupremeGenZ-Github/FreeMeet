@@ -1,30 +1,32 @@
-# SkyMeet v3 validation
+# SkyMeet v3 New — validation
 
-Date: 24 September 2026. Package/API version: 3.0.0.
+Date: 25 September 2026. Package/API version: 3.1.0.
 
 ## Passed
 
-- Production build (`npm run build`).
-- 21 Node tests: server authorization, participant recording revocation, participant poll permissions/ownership, chat sender identity, hand-raise transitions, PostgreSQL snapshot round-trip (pg-mem), permanent-room lifecycle, notes conflicts/formatting/saving, whiteboard undo and large image messages.
-- Nine distinct Chromium browser tests passed across the regression run and targeted reruns after fixes:
-  1. Four bidirectional negotiated media sections with separate camera and screen tracks.
-  2. Notes conflicts preserve drafts; Leave flushes edits.
-  3. Malformed saved-room data recovery.
-  4. Multi-image import stays connected.
-  5. Mobile landing layout.
-  6. Eight palettes and saved mode preferences.
-  7. Guest images, whiteboard undo/redo, notes and chat in both directions.
-  8. Chat pop-ups/unread counts; guest poll creation and host disable; recording without getDisplayMedia at a mobile viewport; host revocation stops it and an actual nonempty recording downloads; sound preference persistence; unsupported screen-capture guidance.
-  9. Real MediaPipe runtime/model loads under the production CSP; uploaded PNG and WebM backgrounds apply and remove; removing the effect while the camera is off preserves that off state.
+- `npm run check`: 25 Node tests passed; required background assets validated; production build passed.
+- `npm run test:browser:regression`: 15 Chromium checks in two fresh-server groups (7 + 8), respecting the unchanged production room-creation rate limit.
 
-During development, a transient chat popup remained visible as chat opened. Rendering now suppresses popups whenever the chat panel is open; the regression passes. Tests for host switches wait for server synchronization rather than assuming an immediate local checkbox update. Recording tests allow media frames to accumulate and verify the actual download rather than fetching a blob under the restrictive connect-src policy.
+Browser coverage includes bidirectional SDP negotiation and camera/screen track separation; notes conflict handling and saving on Leave; malformed saved-room data; multi-image imports; chat notifications and unread counts; guest polls and host permission switches; recording with screen capture unavailable, permission revocation and a nonempty file download; real photo/video background processing; camera-off during background loading; camera/screen permission finishing after Leave; password retry; temporary startup failure recovery; malformed recovery-link encoding; eight themes; mobile landing layout; two-participant whiteboard, notes and chat.
 
-## Limitations
+Node coverage includes prior board/notes/persistence regressions, recording permissions, screen-sharing revocation, co-host demotion restrictions, poll ownership after reconnection, reaction events and click/applause sound timing.
 
-- Mobile viewport testing uses Chromium with screen capture deliberately unavailable. It is not a physical Android/iPhone hardware test. Real phone codecs, performance, background suspension and saving must be checked using UPGRADE-SKYMEET-V3.md.
-- The existing full remote-media test is retained but was not rerun in this release. The v2 execution environment could not obtain usable ICE candidates. Negotiation passes; end-to-end internet camera/audio, TURN, remote recording audio and background appearance on another device still require deployed two-device testing.
-- Sound preference behavior was tested; audible quality was not evaluated by a human listener.
-- No Render/Neon account was accessed or deployed. Database tests use an emulator/test store, not your live Neon database.
-- The host recording permission controls only the built-in recorder, not external software or phone OS recording.
+## Reproduced before repair
 
-Run locally: `npm ci --include=dev`, `npm test`, `npm run build`, `npx playwright install chromium`, `npm run test:browser`. The full browser command also runs the retained end-to-end media test and requires working WebRTC networking. Use `npx playwright test --grep-invert 'two real browser contexts'` for the nine targeted regression cases.
+Tests run against the shipped v3.0.0 confirmed:
+
+- Camera permission completing after Leave left a live capture track.
+- A background finishing after camera-off replaced the outgoing video with an enabled track.
+- Wrong-password failure removed the password/retry form.
+
+Additional fixes from code review have focused regression coverage where listed above. See START-HERE-V3-NEW.md for the full change list.
+
+## Remaining verification limits
+
+The full two-browser remote-media test was attempted and failed waiting for a second video with decoded frames. An independent Chromium ICE diagnostic returned only completion, with no network candidates. Thus remote video/audio delivery has NOT passed in this execution environment. The negotiation test passes, but does not establish working end-to-end media transport.
+
+The full remote-media test remains included. It was excluded only from the separately named targeted regression command, not deleted or weakened. Running all tests rapidly on one server can also hit the production room-creation limit; grouped regression runs use fresh servers and keep that limit intact.
+
+No live Render/Neon account was accessed. Real-device calling, TURN connectivity, mobile recording performance/format compatibility, and remote audio in recordings require deployment acceptance testing. Mobile viewport tests are Chromium tests, not physical iPhone/Android certification. PostgreSQL tests use a test store/pg-mem.
+
+No claim is made that every possible defect is eliminated. The deployed URL and exact failing behavior are still needed to diagnose the user's live failure.

@@ -20,7 +20,7 @@ test('chat alerts, participant polls, recording revocation and sound preferences
  await page.getByLabel('Allow participant recording',{exact:true}).click();await expect(guest.getByRole('link',{name:'Save recording',exact:true})).toBeVisible();await expect(guest.getByRole('button',{name:'Record locally'})).toBeDisabled();
  const downloadEvent=guest.waitForEvent('download');await guest.getByRole('link',{name:'Save recording',exact:true}).click();const downloaded=await downloadEvent;expect(fs.statSync(await downloaded.path()).size).toBeGreaterThan(100);
  await page.getByLabel('Meeting sounds',{exact:true}).uncheck();await expect(page.getByLabel('Button click sounds')).toBeDisabled();expect(await page.evaluate(()=>localStorage.getItem('skymeet-sounds'))).toBe('off');
- await guest.getByRole('button',{name:'Share screen',exact:true}).click();await expect(guest.locator('.toast')).toContainText('cannot share the phone screen');
+ await guest.getByRole('button',{name:'Share screen',exact:true}).click();await expect(guest.locator('.toast')).toContainText('cannot share its screen');
  }finally{await context.close();}
 });
 test('real segmentation applies and removes an uploaded photo and video background',async({page})=>{

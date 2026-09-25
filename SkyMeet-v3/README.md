@@ -1,6 +1,8 @@
+> **SkyMeet v3 — New / corrected build 3.1.0.** Start with [START-HERE-V3-NEW.md](START-HERE-V3-NEW.md).
+
 # SkyMeet v2
 
-**Feature release · package 3.0.0.** Read [UPGRADE-SKYMEET-V3.md](UPGRADE-SKYMEET-V3.md) before updating an existing Render/Neon deployment.
+**Feature release · package 3.1.0.** Read [UPGRADE-SKYMEET-V3.md](UPGRADE-SKYMEET-V3.md) before updating an existing Render/Neon deployment.
 
 **A shared space for video meetings, ideas, and teamwork.**
 
@@ -119,7 +121,7 @@ Save the environment changes and deploy. The included `render.yaml` also describ
 Visit your deployed site's `/api/health` endpoint. With PostgreSQL configured, the expected response for this package is:
 
 ```json
-{"ok":true,"version":"3.0.0","storage":"postgresql"}
+{"ok":true,"version":"3.1.0","storage":"postgresql"}
 ```
 
 Then:

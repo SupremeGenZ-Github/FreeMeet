@@ -1,3 +1,7 @@
+# Current release: SkyMeet v3 New (3.1.0)
+
+See START-HERE-V3-NEW.md and TEST-RESULTS.md for current changes and validation. The earlier release history follows.
+
 > Historical release notes. The current bug-fix release is documented in UPGRADE-SKYMEET-V2.md; use that guide for current behavior and verification.
 
 # SkyMeet update

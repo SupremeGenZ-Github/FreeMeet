@@ -1,6 +1,6 @@
 {
   "name": "skymeet",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -13,7 +13,9 @@
     "start": "node --env-file-if-exists=.env server/index.js",
     "test": "node --test tests/*.test.js",
     "test:browser": "playwright test",
-    "check": "npm run test && npm run build"
+    "check": "npm run test && npm run build",
+    "prebuild": "node scripts/verify-assets.mjs",
+    "test:browser:regression": "playwright test bugfix.spec.js features.spec.js meeting.spec.js --grep-invert \"two real browser contexts\" && playwright test recovery.spec.js skymeet.spec.js"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "0.10.32",
